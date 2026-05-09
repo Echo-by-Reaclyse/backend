@@ -14,6 +14,7 @@ app.use(
   cors({
     origin: [
       "https://echobyreaclyse.com",
+      "https://www.echobyreaclyse.com",
       "http://localhost:5173",
       "http://localhost:4173",
     ],
