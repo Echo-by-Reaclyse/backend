@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { User, Session } from "@supabase/supabase-js";
-import { supabaseAdmin } from "../lib/supabase-admin";
-import { supabaseClient, userScopedClient } from "../lib/supabase-client";
-import { authMiddleware } from "../lib/auth";
-import { resend, FROM_ADDRESS } from "../lib/resend-client";
-import { accountDeletionEmail, appWelcomeEmail } from "../lib/email-templates";
+import { supabaseAdmin } from "../lib/supabase-admin.js";
+import { supabaseClient, userScopedClient } from "../lib/supabase-client.js";
+import { authMiddleware } from "../lib/auth.js";
+import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
+import { accountDeletionEmail, appWelcomeEmail } from "../lib/email-templates.js";
 
 // ─── Response helpers ─────────────────────────────────────────────────────────
 

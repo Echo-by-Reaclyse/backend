@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { supabaseAdmin } from "./supabase-admin";
+import { supabaseAdmin } from "./supabase-admin.js";
 
 type AuthVariables = {
   Variables: {

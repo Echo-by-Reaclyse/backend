@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { supabaseAdmin } from "../lib/supabase-admin";
-import { resend, FROM_ADDRESS } from "../lib/resend-client";
-import { waitlistWelcomeEmail } from "../lib/email-templates";
+import { supabaseAdmin } from "../lib/supabase-admin.js";
+import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
+import { waitlistWelcomeEmail } from "../lib/email-templates.js";
 
 const subscribe = new Hono();
 

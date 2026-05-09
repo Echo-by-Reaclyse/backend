@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { healthRoute } from "./routes/health";
-import { subscribeRoute } from "./routes/subscribe";
-import { sendEmailRoute } from "./routes/send-email";
-import { authRoute } from "./routes/auth";
+import { healthRoute } from "./routes/health.js";
+import { subscribeRoute } from "./routes/subscribe.js";
+import { sendEmailRoute } from "./routes/send-email.js";
+import { authRoute } from "./routes/auth.js";
 
 const app = new Hono();
 

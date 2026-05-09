@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { supabaseAdmin } from "../lib/supabase-admin";
-import { resend, FROM_ADDRESS } from "../lib/resend-client";
+import { supabaseAdmin } from "../lib/supabase-admin.js";
+import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
 import {
   appWelcomeEmail,
   accountDeletionEmail,
-} from "../lib/email-templates";
-import { authMiddleware } from "../lib/auth";
+} from "../lib/email-templates.js";
+import { authMiddleware } from "../lib/auth.js";
 
 const EMAIL_TYPES = ["app_welcome", "account_deletion"] as const;
 type EmailType = (typeof EMAIL_TYPES)[number];
