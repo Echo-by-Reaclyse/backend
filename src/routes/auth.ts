@@ -1,82 +1,151 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import type { User, Session } from "@supabase/supabase-js";
-import { supabaseAdmin } from "../lib/supabase-admin.js";
-import { supabaseClient, userScopedClient } from "../lib/supabase-client.js";
-import { authMiddleware } from "../lib/auth.js";
-
-// ─── Response helpers ─────────────────────────────────────────────────────────
-
-function sessionPayload(session: Session) {
-  return {
-    accessToken: session.access_token,
-    refreshToken: session.refresh_token,
-    expiresAt: session.expires_at ?? null,
-    user: userPayload(session.user),
-  };
-}
-
-function userPayload(user: User) {
-  const provider =
-    typeof user.app_metadata?.provider === "string"
-      ? user.app_metadata.provider
-      : "email";
-
-  const displayName =
-    typeof user.user_metadata?.full_name === "string"
-      ? user.user_metadata.full_name
-      : typeof user.user_metadata?.name === "string"
-        ? user.user_metadata.name
-        : null;
-
-  const photoURL =
-    typeof user.user_metadata?.avatar_url === "string"
-      ? user.user_metadata.avatar_url
-      : typeof user.user_metadata?.picture === "string"
-        ? user.user_metadata.picture
-        : null;
-
-  return {
-    id: user.id,
-    email: user.email ?? null,
-    displayName,
-    photoURL,
-    provider,
-  };
-}
-
-// ─── Router ───────────────────────────────────────────────────────────────────
-
-type AuthVariables = {
-  Variables: { auth: { userId: string; isServiceRole: boolean } };
-};
+import { sql } from "../lib/db.js";
+import {
+  signAccessToken,
+  generateRefreshToken,
+  hashToken,
+  refreshExpiresAt,
+} from "../lib/jwt.js";
+import { hashPassword, verifyPassword } from "../lib/password.js";
+import { verifyAppleToken } from "../lib/apple-auth.js";
+import { verifyGoogleToken } from "../lib/google-auth.js";
+import { authMiddleware, type AuthVariables } from "../lib/auth.js";
 
 const auth = new Hono<AuthVariables>();
 
-// ── Public: sign-up ──────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface DbUser {
+  id: string;
+  email: string | null;
+  password_hash: string | null;
+  display_name: string | null;
+  photo_url: string | null;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function primaryProvider(userId: string): Promise<string> {
+  const rows = await sql`
+    SELECT provider FROM user_identities
+    WHERE user_id = ${userId}
+    ORDER BY created_at ASC LIMIT 1
+  `;
+  return (rows[0] as { provider: string } | undefined)?.provider ?? "email";
+}
+
+async function createSession(user: DbUser) {
+  const provider = await primaryProvider(user.id);
+  const refreshToken = generateRefreshToken();
+
+  await sql`
+    INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+    VALUES (${user.id}, ${hashToken(refreshToken)}, ${refreshExpiresAt()})
+  `;
+
+  const { token: accessToken, expiresAt } = await signAccessToken({
+    sub: user.id,
+    email: user.email,
+    displayName: user.display_name,
+    photoURL: user.photo_url,
+    provider,
+  });
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt,
+    user: {
+      id: user.id,
+      email: user.email ?? null,
+      displayName: user.display_name ?? null,
+      photoURL: user.photo_url ?? null,
+      provider,
+    },
+  };
+}
+
+async function findOrCreateOAuthUser(params: {
+  provider: string;
+  providerId: string;
+  email?: string | null;
+  displayName?: string | null;
+  photoURL?: string | null;
+}): Promise<DbUser> {
+  const { provider, providerId, email, displayName, photoURL } = params;
+
+  // 1. Existing identity → return user
+  const byIdentity = await sql`
+    SELECT u.id, u.email, u.password_hash, u.display_name, u.photo_url
+    FROM user_identities i
+    JOIN users u ON u.id = i.user_id
+    WHERE i.provider = ${provider} AND i.provider_id = ${providerId}
+  `;
+  if (byIdentity.length > 0) return byIdentity[0] as DbUser;
+
+  // 2. Same email already exists → link identity to that account
+  if (email) {
+    const byEmail = await sql`
+      SELECT id, email, password_hash, display_name, photo_url
+      FROM users WHERE email = ${email}
+    `;
+    if (byEmail.length > 0) {
+      const user = byEmail[0] as DbUser;
+      await sql`
+        INSERT INTO user_identities (user_id, provider, provider_id)
+        VALUES (${user.id}, ${provider}, ${providerId})
+        ON CONFLICT DO NOTHING
+      `;
+      return user;
+    }
+  }
+
+  // 3. Create new user + identity
+  const newUsers = await sql`
+    INSERT INTO users (email, display_name, photo_url)
+    VALUES (${email ?? null}, ${displayName ?? null}, ${photoURL ?? null})
+    RETURNING id, email, password_hash, display_name, photo_url
+  `;
+  const user = newUsers[0] as DbUser;
+
+  await sql`
+    INSERT INTO user_identities (user_id, provider, provider_id)
+    VALUES (${user.id}, ${provider}, ${providerId})
+  `;
+
+  return user;
+}
+
+// ─── Public: sign-up ─────────────────────────────────────────────────────────
 
 auth.post("/sign-up", async (c) => {
   const body = z
-    .object({ email: z.string().email(), password: z.string().min(6) })
+    .object({ email: z.string().email(), password: z.string().min(8) })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { data, error } = await supabaseClient.auth.signUp({
-    email: body.data.email,
-    password: body.data.password,
-  });
+  const { email, password } = body.data;
 
-  if (error) return c.json({ error: error.message }, 400);
+  const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+  if (existing.length > 0) return c.json({ error: "Email already registered" }, 400);
 
-  // Email confirmation required — no session yet
-  if (!data.session) {
-    return c.json({ requiresEmailConfirmation: true });
-  }
+  const users = await sql`
+    INSERT INTO users (email, password_hash)
+    VALUES (${email}, ${await hashPassword(password)})
+    RETURNING id, email, password_hash, display_name, photo_url
+  `;
+  const user = users[0] as DbUser;
 
-  return c.json(sessionPayload(data.session));
+  await sql`
+    INSERT INTO user_identities (user_id, provider, provider_id)
+    VALUES (${user.id}, 'email', ${email})
+  `;
+
+  return c.json(await createSession(user));
 });
 
-// ── Public: sign-in (email/password) ─────────────────────────────────────────
+// ─── Public: sign-in (email/password) ────────────────────────────────────────
 
 auth.post("/sign-in", async (c) => {
   const body = z
@@ -84,16 +153,25 @@ auth.post("/sign-in", async (c) => {
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { data, error } = await supabaseClient.auth.signInWithPassword({
-    email: body.data.email,
-    password: body.data.password,
-  });
+  const { email, password } = body.data;
+  const rows = await sql`
+    SELECT id, email, password_hash, display_name, photo_url
+    FROM users WHERE email = ${email}
+  `;
 
-  if (error || !data.session) return c.json({ error: error?.message ?? "Sign-in failed" }, 401);
-  return c.json(sessionPayload(data.session));
+  if (rows.length === 0) return c.json({ error: "Invalid email or password" }, 401);
+  const user = rows[0] as DbUser;
+
+  if (!user.password_hash)
+    return c.json({ error: "This account uses social sign-in" }, 401);
+
+  if (!(await verifyPassword(password, user.password_hash)))
+    return c.json({ error: "Invalid email or password" }, 401);
+
+  return c.json(await createSession(user));
 });
 
-// ── Public: sign-in with Apple ────────────────────────────────────────────────
+// ─── Public: sign-in with Apple ──────────────────────────────────────────────
 
 auth.post("/sign-in-apple", async (c) => {
   const body = z
@@ -101,17 +179,21 @@ auth.post("/sign-in-apple", async (c) => {
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { data, error } = await supabaseClient.auth.signInWithIdToken({
-    provider: "apple",
-    token: body.data.idToken,
-    nonce: body.data.nonce,
-  });
-
-  if (error || !data.session) return c.json({ error: error?.message ?? "Sign-in failed" }, 401);
-  return c.json(sessionPayload(data.session));
+  try {
+    const claims = await verifyAppleToken(body.data.idToken, body.data.nonce);
+    const user = await findOrCreateOAuthUser({
+      provider: "apple",
+      providerId: claims.sub,
+      email: claims.email,
+    });
+    return c.json(await createSession(user));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Apple sign-in failed";
+    return c.json({ error: msg }, 401);
+  }
 });
 
-// ── Public: sign-in with Google ───────────────────────────────────────────────
+// ─── Public: sign-in with Google ─────────────────────────────────────────────
 
 auth.post("/sign-in-google", async (c) => {
   const body = z
@@ -119,17 +201,23 @@ auth.post("/sign-in-google", async (c) => {
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { data, error } = await supabaseClient.auth.signInWithIdToken({
-    provider: "google",
-    token: body.data.idToken,
-    access_token: body.data.accessToken,
-  });
-
-  if (error || !data.session) return c.json({ error: error?.message ?? "Sign-in failed" }, 401);
-  return c.json(sessionPayload(data.session));
+  try {
+    const claims = await verifyGoogleToken(body.data.idToken);
+    const user = await findOrCreateOAuthUser({
+      provider: "google",
+      providerId: claims.sub,
+      email: claims.email,
+      displayName: claims.name,
+      photoURL: claims.picture,
+    });
+    return c.json(await createSession(user));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Google sign-in failed";
+    return c.json({ error: msg }, 401);
+  }
 });
 
-// ── Public: refresh token ─────────────────────────────────────────────────────
+// ─── Public: refresh ─────────────────────────────────────────────────────────
 
 auth.post("/refresh", async (c) => {
   const body = z
@@ -137,183 +225,173 @@ auth.post("/refresh", async (c) => {
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { data, error } = await supabaseClient.auth.refreshSession({
-    refresh_token: body.data.refreshToken,
-  });
+  const tokenHash = hashToken(body.data.refreshToken);
+  const tokens = await sql`
+    SELECT user_id FROM refresh_tokens
+    WHERE token_hash = ${tokenHash} AND expires_at > now()
+  `;
+  if (tokens.length === 0) return c.json({ error: "Invalid or expired refresh token" }, 401);
 
-  if (error || !data.session) return c.json({ error: error?.message ?? "Refresh failed" }, 401);
-  return c.json(sessionPayload(data.session));
+  const userId = (tokens[0] as { user_id: string }).user_id;
+  await sql`DELETE FROM refresh_tokens WHERE token_hash = ${tokenHash}`;
+
+  const users = await sql`
+    SELECT id, email, password_hash, display_name, photo_url FROM users WHERE id = ${userId}
+  `;
+  if (users.length === 0) return c.json({ error: "User not found" }, 401);
+
+  return c.json(await createSession(users[0] as DbUser));
 });
 
-// ── Authenticated: sign-out ───────────────────────────────────────────────────
+// ─── Authenticated: sign-out ──────────────────────────────────────────────────
 
 auth.post("/sign-out", authMiddleware, async (c) => {
-  const rawToken = c.req.header("Authorization")!.slice(7);
-  // Revoke the session globally so all devices are signed out
-  await supabaseAdmin.auth.admin.signOut(rawToken, "global").catch(console.error);
+  const { userId } = c.get("auth");
+  await sql`DELETE FROM refresh_tokens WHERE user_id = ${userId}`.catch(console.error);
   return c.json({ success: true });
 });
 
-// ── Authenticated: update display name ───────────────────────────────────────
+// ─── Authenticated: update display name ──────────────────────────────────────
 
 auth.patch("/metadata", authMiddleware, async (c) => {
-  const auth = c.get("auth");
+  const { userId } = c.get("auth");
   const body = z
     .object({ displayName: z.string().trim().min(1) })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(auth.userId, {
-    user_metadata: { full_name: body.data.displayName },
-  });
-
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`
+    UPDATE users SET display_name = ${body.data.displayName}, updated_at = now()
+    WHERE id = ${userId}
+  `;
   return c.json({ success: true });
 });
 
-// ── Authenticated: delete account ─────────────────────────────────────────────
+// ─── Authenticated: delete account ───────────────────────────────────────────
 
 auth.delete("/account", authMiddleware, async (c) => {
-  const auth = c.get("auth");
-
-  const { data: { user }, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(auth.userId);
-  if (fetchError || !user) return c.json({ error: "User not found" }, 404);
-
-  const email = user.email;
-
-  const { error } = await supabaseAdmin.auth.admin.deleteUser(auth.userId);
-  if (error) return c.json({ error: error.message }, 500);
-
+  const { userId } = c.get("auth");
+  await sql`DELETE FROM users WHERE id = ${userId}`;
   return c.json({ success: true });
 });
 
-// ── Authenticated: list identities ────────────────────────────────────────────
+// ─── Authenticated: list identities ──────────────────────────────────────────
 
 auth.get("/identities", authMiddleware, async (c) => {
-  const auth = c.get("auth");
-
-  const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(auth.userId);
-  if (error || !user) return c.json({ error: "User not found" }, 404);
-
-  const identities = (user.identities ?? []).map((identity) => ({
-    id: identity.id,
-    provider: identity.provider,
-    createdAt: identity.created_at,
-  }));
-
+  const { userId } = c.get("auth");
+  const identities = await sql`
+    SELECT id, provider, created_at FROM user_identities WHERE user_id = ${userId}
+  `;
   return c.json({ identities });
 });
 
-// ── Authenticated: link Apple identity ───────────────────────────────────────
+// ─── Authenticated: link Apple ────────────────────────────────────────────────
 
 auth.post("/link-apple", authMiddleware, async (c) => {
-  const rawToken = c.req.header("Authorization")!.slice(7);
+  const { userId } = c.get("auth");
   const body = z
     .object({ idToken: z.string(), nonce: z.string() })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  // Use a user-scoped client so Supabase links rather than creates a new account
-  const { data, error } = await userScopedClient(rawToken).auth.signInWithIdToken({
-    provider: "apple",
-    token: body.data.idToken,
-    nonce: body.data.nonce,
-  });
+  try {
+    const claims = await verifyAppleToken(body.data.idToken, body.data.nonce);
+    const existing = await sql`
+      SELECT user_id FROM user_identities
+      WHERE provider = 'apple' AND provider_id = ${claims.sub}
+    `;
+    if (existing.length > 0 && (existing[0] as { user_id: string }).user_id !== userId)
+      return c.json({ error: "Apple account already linked to another user" }, 409);
 
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json(data.session ? sessionPayload(data.session) : { success: true });
+    await sql`
+      INSERT INTO user_identities (user_id, provider, provider_id)
+      VALUES (${userId}, 'apple', ${claims.sub})
+      ON CONFLICT DO NOTHING
+    `;
+    return c.json({ success: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed" }, 400);
+  }
 });
 
-// ── Authenticated: link Google identity ──────────────────────────────────────
+// ─── Authenticated: link Google ───────────────────────────────────────────────
 
 auth.post("/link-google", authMiddleware, async (c) => {
-  const rawToken = c.req.header("Authorization")!.slice(7);
+  const { userId } = c.get("auth");
   const body = z
     .object({ idToken: z.string(), accessToken: z.string() })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { data, error } = await userScopedClient(rawToken).auth.signInWithIdToken({
-    provider: "google",
-    token: body.data.idToken,
-    access_token: body.data.accessToken,
-  });
+  try {
+    const claims = await verifyGoogleToken(body.data.idToken);
+    const existing = await sql`
+      SELECT user_id FROM user_identities
+      WHERE provider = 'google' AND provider_id = ${claims.sub}
+    `;
+    if (existing.length > 0 && (existing[0] as { user_id: string }).user_id !== userId)
+      return c.json({ error: "Google account already linked to another user" }, 409);
 
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json(data.session ? sessionPayload(data.session) : { success: true });
+    await sql`
+      INSERT INTO user_identities (user_id, provider, provider_id)
+      VALUES (${userId}, 'google', ${claims.sub})
+      ON CONFLICT DO NOTHING
+    `;
+    return c.json({ success: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Failed" }, 400);
+  }
 });
 
-// ── Authenticated: unlink identity ───────────────────────────────────────────
+// ─── Authenticated: unlink identity ──────────────────────────────────────────
 
 auth.delete("/identities/:id", authMiddleware, async (c) => {
-  const auth = c.get("auth");
+  const { userId } = c.get("auth");
   const identityId = c.req.param("id");
 
-  // Verify user has more than one identity before unlinking
-  const { data: { user }, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(auth.userId);
-  if (fetchError || !user) return c.json({ error: "User not found" }, 404);
-  if ((user.identities ?? []).length <= 1) {
+  const [countRows, userRows] = await Promise.all([
+    sql`SELECT COUNT(*)::int AS count FROM user_identities WHERE user_id = ${userId}`,
+    sql`SELECT password_hash FROM users WHERE id = ${userId}`,
+  ]);
+  const count = (countRows[0] as { count: number }).count;
+  const hasPassword = !!(userRows[0] as { password_hash: string | null }).password_hash;
+
+  if (count <= 1 && !hasPassword)
     return c.json({ error: "Cannot remove the last sign-in method" }, 400);
-  }
 
-  // Supabase GoTrue admin REST API for identity deletion.
-  // New opaque secret keys are not JWTs — only send via apikey header, not Authorization.
-  const res = await fetch(
-    `${process.env.SUPABASE_URL}/auth/v1/admin/users/${auth.userId}/identities/${identityId}`,
-    {
-      method: "DELETE",
-      headers: {
-        apikey: process.env.SUPABASE_SECRET_KEY!,
-      },
-    }
-  );
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { message?: string };
-    return c.json({ error: err.message ?? "Unlink failed" }, 400);
-  }
-
+  await sql`DELETE FROM user_identities WHERE id = ${identityId} AND user_id = ${userId}`;
   return c.json({ success: true });
 });
 
-// ── Authenticated: register push device token ─────────────────────────────────
+// ─── Authenticated: register device token ────────────────────────────────────
 
 auth.post("/device-token", authMiddleware, async (c) => {
-  const auth = c.get("auth");
+  const { userId } = c.get("auth");
   const body = z
     .object({ token: z.string() })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { error } = await supabaseAdmin
-    .from("user_devices")
-    .upsert(
-      {
-        user_id: auth.userId,
-        device_token: body.data.token,
-        platform: "ios",
-      },
-      { onConflict: "device_token" }
-    );
-
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`
+    INSERT INTO user_devices (user_id, device_token, platform)
+    VALUES (${userId}, ${body.data.token}, 'ios')
+    ON CONFLICT (device_token) DO UPDATE SET user_id = ${userId}
+  `;
   return c.json({ success: true });
 });
 
-// ── Authenticated: remove push device token ───────────────────────────────────
+// ─── Authenticated: remove device token ──────────────────────────────────────
 
 auth.delete("/device-token", authMiddleware, async (c) => {
+  const { userId } = c.get("auth");
   const body = z
     .object({ token: z.string() })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
-  const { error } = await supabaseAdmin
-    .from("user_devices")
-    .delete()
-    .eq("device_token", body.data.token);
-
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`
+    DELETE FROM user_devices WHERE user_id = ${userId} AND device_token = ${body.data.token}
+  `;
   return c.json({ success: true });
 });
 

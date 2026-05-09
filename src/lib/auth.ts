@@ -1,36 +1,20 @@
 import { createMiddleware } from "hono/factory";
-import { supabaseAdmin } from "./supabase-admin.js";
+import { verifyAccessToken } from "./jwt.js";
 
-type AuthVariables = {
-  Variables: {
-    auth: { userId: string; isServiceRole: boolean };
-  };
+export type AuthVariables = {
+  Variables: { auth: { userId: string } };
 };
 
-export const authMiddleware = createMiddleware<AuthVariables>(
-  async (c, next) => {
-    const authHeader = c.req.header("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    const token = authHeader.slice(7);
-
-    if (token === process.env.SUPABASE_SECRET_KEY) {
-      c.set("auth", { userId: "service_role", isServiceRole: true });
-      return next();
-    }
-
-    const {
-      data: { user },
-      error,
-    } = await supabaseAdmin.auth.getUser(token);
-
-    if (error || !user) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    c.set("auth", { userId: user.id, isServiceRole: false });
-    return next();
+export const authMiddleware = createMiddleware<AuthVariables>(async (c, next) => {
+  const header = c.req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) {
+    return c.json({ error: "Unauthorized" }, 401);
   }
-);
+  try {
+    const payload = await verifyAccessToken(header.slice(7));
+    c.set("auth", { userId: payload.sub! });
+    return next();
+  } catch {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+});

@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import type { PostgrestError } from "@supabase/supabase-js";
-import { supabaseAdmin } from "../lib/supabase-admin.js";
+import { sql } from "../lib/db.js";
 
 const subscribe = new Hono();
 
@@ -10,14 +9,6 @@ const bodySchema = z.object({
   locale: z.string().nullable().optional(),
   source: z.string().default("landing"),
 });
-
-const withTimeout = <T>(p: PromiseLike<T>, ms: number): Promise<T> =>
-  Promise.race([
-    Promise.resolve(p),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms)
-    ),
-  ]);
 
 subscribe.post("/", async (c) => {
   let body: unknown;
@@ -34,26 +25,17 @@ subscribe.post("/", async (c) => {
 
   const { email, locale, source } = parsed.data;
 
-  console.log("[subscribe] inserting:", email);
-  let insertError: PostgrestError | null = null;
   try {
-    const result = await withTimeout(
-      supabaseAdmin.from("waitlist_signups").insert({ email, locale: locale ?? null, source }),
-      8_000
-    );
-    insertError = result.error;
+    await sql`
+      INSERT INTO waitlist_signups (email, locale, source)
+      VALUES (${email}, ${locale ?? null}, ${source})
+      ON CONFLICT (email) DO NOTHING
+    `;
   } catch (err) {
-    console.error("[subscribe] insert timeout/crash:", err instanceof Error ? err.message : err);
-    return c.json({ error: "Service temporarily unavailable" }, 503);
-  }
-
-  // 23505 = unique_violation — already on the list, treat as success
-  if (insertError && insertError.code !== "23505") {
-    console.error("[subscribe] insert error:", insertError.code, insertError.message);
+    console.error("[subscribe] insert error:", err instanceof Error ? err.message : err);
     return c.json({ error: "Failed to join waitlist" }, 500);
   }
 
-  console.log("[subscribe] done, alreadyExisted:", insertError?.code === "23505");
   return c.json({ success: true });
 });
 
