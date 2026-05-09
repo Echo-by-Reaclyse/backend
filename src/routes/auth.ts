@@ -4,8 +4,6 @@ import type { User, Session } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../lib/supabase-admin.js";
 import { supabaseClient, userScopedClient } from "../lib/supabase-client.js";
 import { authMiddleware } from "../lib/auth.js";
-import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
-import { accountDeletionEmail, appWelcomeEmail } from "../lib/email-templates.js";
 
 // ─── Response helpers ─────────────────────────────────────────────────────────
 
@@ -74,28 +72,6 @@ auth.post("/sign-up", async (c) => {
   if (!data.session) {
     return c.json({ requiresEmailConfirmation: true });
   }
-
-  // Send welcome email (best-effort)
-  resend.emails
-    .send({
-      from: FROM_ADDRESS,
-      to: body.data.email,
-      subject: "Welcome to ÉCHO",
-      html: appWelcomeEmail(body.data.email),
-    })
-    .then(({ data: emailData, error: emailError }) => {
-      supabaseAdmin
-        .from("email_log")
-        .insert({
-          recipient_email: body.data.email,
-          email_type: "app_welcome",
-          resend_message_id: emailData?.id ?? null,
-          status: emailError ? "failed" : "sent",
-          user_id: data.session!.user.id,
-        })
-        .then(undefined, console.error);
-    })
-    .catch(console.error);
 
   return c.json(sessionPayload(data.session));
 });
@@ -207,28 +183,6 @@ auth.delete("/account", authMiddleware, async (c) => {
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(auth.userId);
   if (error) return c.json({ error: error.message }, 500);
-
-  if (email) {
-    resend.emails
-      .send({
-        from: FROM_ADDRESS,
-        to: email,
-        subject: "Your ÉCHO account has been deleted",
-        html: accountDeletionEmail(email),
-      })
-      .then(({ data: emailData, error: emailError }) => {
-        supabaseAdmin
-          .from("email_log")
-          .insert({
-            recipient_email: email,
-            email_type: "account_deletion",
-            resend_message_id: emailData?.id ?? null,
-            status: emailError ? "failed" : "sent",
-          })
-          .then(undefined, console.error);
-      })
-      .catch(console.error);
-  }
 
   return c.json({ success: true });
 });

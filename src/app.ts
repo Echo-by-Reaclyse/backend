@@ -3,7 +3,6 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { healthRoute } from "./routes/health.js";
 import { subscribeRoute } from "./routes/subscribe.js";
-import { sendEmailRoute } from "./routes/send-email.js";
 import { authRoute } from "./routes/auth.js";
 
 const app = new Hono();
@@ -27,7 +26,6 @@ app.use(
 app.route("/health", healthRoute);
 app.route("/auth", authRoute);
 app.route("/subscribe", subscribeRoute);
-app.route("/send-email", sendEmailRoute);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
