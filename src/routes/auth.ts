@@ -308,8 +308,8 @@ auth.delete("/identities/:id", authMiddleware, async (c) => {
     {
       method: "DELETE",
       headers: {
-        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}`,
+        apikey: process.env.SUPABASE_SECRET_KEY!,
       },
     }
   );

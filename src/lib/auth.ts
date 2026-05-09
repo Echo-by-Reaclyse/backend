@@ -16,7 +16,7 @@ export const authMiddleware = createMiddleware<AuthVariables>(
 
     const token = authHeader.slice(7);
 
-    if (token === process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (token === process.env.SUPABASE_SECRET_KEY) {
       c.set("auth", { userId: "service_role", isServiceRole: true });
       return next();
     }
