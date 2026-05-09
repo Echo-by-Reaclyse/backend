@@ -11,6 +11,8 @@ import { hashPassword, verifyPassword } from "../lib/password.js";
 import { verifyAppleToken } from "../lib/apple-auth.js";
 import { verifyGoogleToken } from "../lib/google-auth.js";
 import { authMiddleware, type AuthVariables } from "../lib/auth.js";
+import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
+import { appWelcomeEmail, accountDeletionEmail } from "../lib/email-templates.js";
 
 const auth = new Hono<AuthVariables>();
 
@@ -142,7 +144,15 @@ auth.post("/sign-up", async (c) => {
     VALUES (${user.id}, 'email', ${email})
   `;
 
-  return c.json(await createSession(user));
+  const session = await createSession(user);
+
+  if (resend) {
+    resend.emails
+      .send({ from: FROM_ADDRESS, to: email, subject: "Welcome to ÉCHO", html: appWelcomeEmail(email) })
+      .catch((err: unknown) => console.error("[auth] welcome email error:", err instanceof Error ? err.message : err));
+  }
+
+  return c.json(session);
 });
 
 // ─── Public: sign-in (email/password) ────────────────────────────────────────
@@ -271,7 +281,17 @@ auth.patch("/metadata", authMiddleware, async (c) => {
 
 auth.delete("/account", authMiddleware, async (c) => {
   const { userId } = c.get("auth");
+  const userRows = await sql`SELECT email FROM users WHERE id = ${userId}`;
+  const email = (userRows[0] as { email: string | null } | undefined)?.email;
+
   await sql`DELETE FROM users WHERE id = ${userId}`;
+
+  if (resend && email) {
+    resend.emails
+      .send({ from: FROM_ADDRESS, to: email, subject: "Your ÉCHO account has been deleted", html: accountDeletionEmail(email) })
+      .catch((err: unknown) => console.error("[auth] deletion email error:", err instanceof Error ? err.message : err));
+  }
+
   return c.json({ success: true });
 });
 

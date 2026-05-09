@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { sql } from "../lib/db.js";
+import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
+import { waitlistWelcomeEmail } from "../lib/email-templates.js";
 
 const subscribe = new Hono();
 
@@ -34,6 +36,19 @@ subscribe.post("/", async (c) => {
   } catch (err) {
     console.error("[subscribe] insert error:", err instanceof Error ? err.message : err);
     return c.json({ error: "Failed to join waitlist" }, 500);
+  }
+
+  if (resend) {
+    resend.emails
+      .send({
+        from: FROM_ADDRESS,
+        to: email,
+        subject: "You're on the ÉCHO waitlist",
+        html: waitlistWelcomeEmail(email),
+      })
+      .catch((err: unknown) =>
+        console.error("[subscribe] email error:", err instanceof Error ? err.message : err)
+      );
   }
 
   return c.json({ success: true });
