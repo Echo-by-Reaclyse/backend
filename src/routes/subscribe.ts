@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../lib/supabase-admin.js";
+import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
+import { waitlistWelcomeEmail } from "../lib/email-templates.js";
 
 const subscribe = new Hono();
 
@@ -34,13 +37,13 @@ subscribe.post("/", async (c) => {
   const { email, locale, source } = parsed.data;
 
   console.log("[subscribe] inserting:", email);
-  let insertError: { code: string; message: string } | null = null;
+  let insertError: PostgrestError | null = null;
   try {
     const result = await withTimeout(
       supabaseAdmin.from("waitlist_signups").insert({ email, locale: locale ?? null, source }),
       8_000
     );
-    insertError = result.error as typeof insertError;
+    insertError = result.error;
   } catch (err) {
     console.error("[subscribe] insert timeout/crash:", err instanceof Error ? err.message : err);
     return c.json({ error: "Service temporarily unavailable" }, 503);
@@ -52,7 +55,46 @@ subscribe.post("/", async (c) => {
     return c.json({ error: "Failed to join waitlist" }, 500);
   }
 
-  console.log("[subscribe] done, alreadyExisted:", insertError?.code === "23505");
+  const alreadyExisted = insertError?.code === "23505";
+  console.log("[subscribe] insert done, alreadyExisted:", alreadyExisted);
+
+  if (!alreadyExisted) {
+    let emailId: string | null = null;
+    let emailFailed = false;
+    try {
+      const { data: emailData, error: emailError } = await withTimeout(
+        resend.emails.send({
+          from: FROM_ADDRESS,
+          to: email,
+          subject: "You're on the ÉCHO waitlist",
+          html: waitlistWelcomeEmail(email),
+        }),
+        10_000
+      );
+      if (emailError) {
+        emailFailed = true;
+        console.error("[subscribe] email error:", emailError.message);
+      } else {
+        emailId = emailData?.id ?? null;
+      }
+    } catch (err) {
+      emailFailed = true;
+      console.error("[subscribe] email timeout:", err instanceof Error ? err.message : err);
+    }
+
+    // Log email (best-effort)
+    supabaseAdmin
+      .from("email_log")
+      .insert({
+        recipient_email: email,
+        email_type: "waitlist_welcome",
+        resend_message_id: emailId,
+        status: emailFailed ? "failed" : "sent",
+      })
+      .then(undefined, console.error);
+  }
+
+  console.log("[subscribe] done");
   return c.json({ success: true });
 });
 
