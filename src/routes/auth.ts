@@ -302,13 +302,13 @@ auth.delete("/identities/:id", authMiddleware, async (c) => {
     return c.json({ error: "Cannot remove the last sign-in method" }, 400);
   }
 
-  // Supabase GoTrue admin REST API for identity deletion
+  // Supabase GoTrue admin REST API for identity deletion.
+  // New opaque secret keys are not JWTs — only send via apikey header, not Authorization.
   const res = await fetch(
     `${process.env.SUPABASE_URL}/auth/v1/admin/users/${auth.userId}/identities/${identityId}`,
     {
       method: "DELETE",
       headers: {
-        Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}`,
         apikey: process.env.SUPABASE_SECRET_KEY!,
       },
     }
