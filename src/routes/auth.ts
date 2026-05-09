@@ -93,8 +93,7 @@ auth.post("/sign-up", async (c) => {
           status: emailError ? "failed" : "sent",
           user_id: data.session!.user.id,
         })
-        .then(() => {})
-        .catch(console.error);
+        .then(undefined, console.error);
     })
     .catch(console.error);
 
@@ -226,8 +225,7 @@ auth.delete("/account", authMiddleware, async (c) => {
             resend_message_id: emailData?.id ?? null,
             status: emailError ? "failed" : "sent",
           })
-          .then(() => {})
-          .catch(console.error);
+          .then(undefined, console.error);
       })
       .catch(console.error);
   }

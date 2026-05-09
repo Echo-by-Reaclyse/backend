@@ -68,8 +68,7 @@ sendEmail.post("/", async (c) => {
       status: emailError ? "failed" : "sent",
       user_id: auth.isServiceRole ? null : auth.userId,
     })
-    .then(() => {})
-    .catch(console.error);
+    .then(undefined, console.error);
 
   if (emailError) {
     console.error("[send-email] resend error:", emailError.message);

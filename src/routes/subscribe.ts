@@ -56,8 +56,7 @@ subscribe.post("/", async (c) => {
         resend_message_id: emailData?.id ?? null,
         status: emailError ? "failed" : "sent",
       })
-      .then(() => {})
-      .catch(console.error);
+      .then(undefined, console.error);
   }
 
   return c.json({ success: true });
