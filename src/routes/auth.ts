@@ -77,14 +77,30 @@ async function findOrCreateOAuthUser(params: {
 }): Promise<DbUser> {
   const { provider, providerId, email, displayName, photoURL } = params;
 
-  // 1. Existing identity → return user
+  // 1. Existing identity → return user, filling in any null profile fields
   const byIdentity = await sql`
     SELECT u.id, u.email, u.password_hash, u.display_name, u.photo_url
     FROM user_identities i
     JOIN users u ON u.id = i.user_id
     WHERE i.provider = ${provider} AND i.provider_id = ${providerId}
   `;
-  if (byIdentity.length > 0) return byIdentity[0] as DbUser;
+  if (byIdentity.length > 0) {
+    const user = byIdentity[0] as DbUser;
+    const needsUpdate =
+      (!user.display_name && displayName) || (!user.photo_url && photoURL);
+    if (needsUpdate) {
+      const updated = await sql`
+        UPDATE users SET
+          display_name = COALESCE(display_name, ${displayName ?? null}),
+          photo_url    = COALESCE(photo_url,    ${photoURL ?? null}),
+          updated_at   = now()
+        WHERE id = ${user.id}
+        RETURNING id, email, password_hash, display_name, photo_url
+      `;
+      return updated[0] as DbUser;
+    }
+    return user;
+  }
 
   // 2. Same email already exists → link identity to that account
   if (email) {
@@ -185,7 +201,7 @@ auth.post("/sign-in", async (c) => {
 
 auth.post("/sign-in-apple", async (c) => {
   const body = z
-    .object({ idToken: z.string(), nonce: z.string() })
+    .object({ idToken: z.string(), nonce: z.string(), displayName: z.string().optional() })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
@@ -195,6 +211,7 @@ auth.post("/sign-in-apple", async (c) => {
       provider: "apple",
       providerId: claims.sub,
       email: claims.email,
+      displayName: body.data.displayName ?? null,
     });
     return c.json(await createSession(user));
   } catch (err) {
