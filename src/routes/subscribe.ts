@@ -27,25 +27,43 @@ subscribe.post("/", async (c) => {
 
   const { email, locale, source } = parsed.data;
 
+  console.log("[subscribe] inserting email:", email);
   const { error: insertError } = await supabaseAdmin
     .from("waitlist_signups")
     .insert({ email, locale: locale ?? null, source });
 
   // 23505 = unique_violation — already on the list, treat as success
   if (insertError && insertError.code !== "23505") {
-    console.error("[subscribe] insert error:", insertError.message);
+    console.error("[subscribe] insert error:", insertError.code, insertError.message);
     return c.json({ error: "Failed to join waitlist" }, 500);
   }
 
   const alreadyExisted = insertError?.code === "23505";
+  console.log("[subscribe] insert done, alreadyExisted:", alreadyExisted);
 
   if (!alreadyExisted) {
-    const { data: emailData, error: emailError } = await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: email,
-      subject: "You're on the ÉCHO waitlist",
-      html: waitlistWelcomeEmail(email),
-    });
+    console.log("[subscribe] sending welcome email");
+    let emailData: { id?: string } | null = null;
+    let emailError: Error | null = null;
+    try {
+      const emailWithTimeout = Promise.race([
+        resend.emails.send({
+          from: FROM_ADDRESS,
+          to: email,
+          subject: "You're on the ÉCHO waitlist",
+          html: waitlistWelcomeEmail(email),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Resend timeout")), 10_000)
+        ),
+      ]);
+      const result = await emailWithTimeout;
+      emailData = result.data;
+      emailError = result.error ? new Error(result.error.message) : null;
+    } catch (err) {
+      emailError = err instanceof Error ? err : new Error(String(err));
+      console.error("[subscribe] email error:", emailError.message);
+    }
 
     // Log email (best-effort)
     supabaseAdmin
@@ -59,6 +77,7 @@ subscribe.post("/", async (c) => {
       .then(undefined, console.error);
   }
 
+  console.log("[subscribe] done");
   return c.json({ success: true });
 });
 

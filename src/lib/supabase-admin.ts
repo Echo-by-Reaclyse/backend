@@ -7,6 +7,15 @@ if (!url || !key) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
 }
 
+const fetchWithTimeout = (input: RequestInfo | URL, init?: RequestInit) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer)
+  );
+};
+
 export const supabaseAdmin = createClient(url, key, {
   auth: { autoRefreshToken: false, persistSession: false },
+  global: { fetch: fetchWithTimeout as typeof fetch },
 });
