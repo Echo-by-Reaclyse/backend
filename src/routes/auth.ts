@@ -312,6 +312,25 @@ auth.delete("/account", authMiddleware, async (c) => {
   return c.json({ success: true });
 });
 
+// ─── Authenticated: current user (fresh from DB) ─────────────────────────────
+
+auth.get("/me", authMiddleware, async (c) => {
+  const { userId } = c.get("auth");
+  const rows = await sql`
+    SELECT id, email, display_name, photo_url FROM users WHERE id = ${userId}
+  `;
+  if (rows.length === 0) return c.json({ error: "User not found" }, 404);
+  const u = rows[0] as { id: string; email: string | null; display_name: string | null; photo_url: string | null };
+  const provider = await primaryProvider(userId);
+  return c.json({
+    id: u.id,
+    email: u.email ?? null,
+    displayName: u.display_name ?? null,
+    photoURL: u.photo_url ?? null,
+    provider,
+  });
+});
+
 // ─── Authenticated: list identities ──────────────────────────────────────────
 
 auth.get("/identities", authMiddleware, async (c) => {
