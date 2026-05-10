@@ -9,6 +9,7 @@ const bodySchema = z.object({
   email: z.string().trim().toLowerCase().email("Invalid email address"),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  consent: z.boolean({ required_error: "You must agree to receive updates" }),
   hp: z.string().default(""), // honeypot — must be empty
 });
 
@@ -24,7 +25,9 @@ subscribe.post("/", async (c) => {
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400);
 
-  const { email, firstName, lastName, hp } = parsed.data;
+  const { email, firstName, lastName, consent, hp } = parsed.data;
+
+  if (!consent) return c.json({ error: "You must agree to receive updates" }, 400);
 
   // Honeypot — silently succeed so bots think they got through
   if (hp) return c.json({ success: true });
