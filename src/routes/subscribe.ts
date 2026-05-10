@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { resend, FROM_ADDRESS, WAITLIST_AUDIENCE_ID } from "../lib/resend-client.js";
-import { waitlistWelcomeEmail } from "../lib/email-templates.js";
+import { resend, WAITLIST_AUDIENCE_ID } from "../lib/resend-client.js";
 
 const subscribe = new Hono();
 
@@ -52,14 +51,12 @@ subscribe.post("/", async (c) => {
     console.warn("[subscribe] RESEND_WAITLIST_AUDIENCE_ID not set — skipping audience registration");
   }
 
-  const emailResult = await resend.emails.send({
-    from: FROM_ADDRESS,
-    to: email,
-    subject: "You're on the ÉCHO waitlist",
-    html: waitlistWelcomeEmail(email),
+  const eventResult = await resend.events.send({
+    event: "waitlist.joined",
+    email,
   });
-  if (emailResult.error) {
-    console.error("[subscribe] email error:", emailResult.error);
+  if (eventResult.error) {
+    console.error("[subscribe] event error:", eventResult.error);
   }
 
   return c.json({ success: true });
