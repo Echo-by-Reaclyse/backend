@@ -11,10 +11,28 @@ import { hashPassword, verifyPassword } from "../lib/password.js";
 import { verifyAppleToken } from "../lib/apple-auth.js";
 import { verifyGoogleToken } from "../lib/google-auth.js";
 import { authMiddleware, type AuthVariables } from "../lib/auth.js";
-import { resend, FROM_ADDRESS } from "../lib/resend-client.js";
+import { resend, FROM_ADDRESS, APP_AUDIENCE_ID } from "../lib/resend-client.js";
 import { appWelcomeEmail, accountDeletionEmail } from "../lib/email-templates.js";
 
 const auth = new Hono<AuthVariables>();
+
+// ─── Resend audience helper ───────────────────────────────────────────────────
+
+function addToAppAudience(email: string | null | undefined, displayName?: string | null) {
+  if (!resend || !APP_AUDIENCE_ID || !email) return;
+  const [firstName, ...rest] = (displayName ?? "").trim().split(" ");
+  resend.contacts
+    .create({
+      email,
+      firstName: firstName || undefined,
+      lastName: rest.length ? rest.join(" ") : undefined,
+      unsubscribed: false,
+      audienceId: APP_AUDIENCE_ID,
+    })
+    .catch((err: unknown) =>
+      console.error("[auth] audience error:", err instanceof Error ? err.message : err)
+    );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -162,6 +180,8 @@ auth.post("/sign-up", async (c) => {
 
   const session = await createSession(user);
 
+  addToAppAudience(email);
+
   if (resend) {
     resend.emails
       .send({ from: FROM_ADDRESS, to: email, subject: "Welcome to ÉCHO", html: appWelcomeEmail(email) })
@@ -213,6 +233,7 @@ auth.post("/sign-in-apple", async (c) => {
       email: claims.email,
       displayName: body.data.displayName ?? null,
     });
+    addToAppAudience(user.email, user.display_name);
     return c.json(await createSession(user));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Apple sign-in failed";
@@ -237,6 +258,7 @@ auth.post("/sign-in-google", async (c) => {
       displayName: claims.name,
       photoURL: claims.picture,
     });
+    addToAppAudience(user.email, user.display_name);
     return c.json(await createSession(user));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Google sign-in failed";
