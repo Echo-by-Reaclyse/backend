@@ -52,13 +52,11 @@ subscribe.post("/", async (c) => {
     console.warn("[subscribe] RESEND_WAITLIST_AUDIENCE_ID not set — skipping audience registration");
   }
 
-  const sendAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   const emailResult = await resend.emails.send({
     from: FROM_ADDRESS,
     to: email,
     subject: "You're on the ÉCHO waitlist",
     html: waitlistWelcomeEmail(email),
-    scheduledAt: sendAt,
   });
   if (emailResult.error) {
     console.error("[subscribe] email error:", emailResult.error);
