@@ -37,17 +37,30 @@ subscribe.post("/", async (c) => {
     return c.json({ success: true });
   }
 
-  if (!WAITLIST_AUDIENCE_ID) {
-    console.warn("[subscribe] RESEND_WAITLIST_AUDIENCE_ID not set — skipping audience registration");
+  if (WAITLIST_AUDIENCE_ID) {
+    const contactResult = await resend.contacts.create({
+      email,
+      firstName,
+      lastName,
+      unsubscribed: false,
+      audienceId: WAITLIST_AUDIENCE_ID,
+    });
+    if (contactResult.error) {
+      console.error("[subscribe] audience error:", contactResult.error);
+    }
   } else {
-    resend.contacts
-      .create({ email, firstName, lastName, unsubscribed: false, audienceId: WAITLIST_AUDIENCE_ID })
-      .catch((err: unknown) => console.error("[subscribe] audience error:", err instanceof Error ? err.message : err));
+    console.warn("[subscribe] RESEND_WAITLIST_AUDIENCE_ID not set — skipping audience registration");
   }
 
-  resend.emails
-    .send({ from: FROM_ADDRESS, to: email, subject: "You're on the ÉCHO waitlist", html: waitlistWelcomeEmail(email) })
-    .catch((err: unknown) => console.error("[subscribe] email error:", err instanceof Error ? err.message : err));
+  const emailResult = await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: email,
+    subject: "You're on the ÉCHO waitlist",
+    html: waitlistWelcomeEmail(email),
+  });
+  if (emailResult.error) {
+    console.error("[subscribe] email error:", emailResult.error);
+  }
 
   return c.json({ success: true });
 });
