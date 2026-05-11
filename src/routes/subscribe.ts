@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { resend, WAITLIST_AUDIENCE_ID } from "../lib/resend-client.js";
+import { notifyWaitlistSignup } from "../lib/slack-client.js";
 
 const subscribe = new Hono();
 
@@ -58,6 +59,8 @@ subscribe.post("/", async (c) => {
   if (eventResult.error) {
     console.error("[subscribe] event error:", eventResult.error);
   }
+
+  notifyWaitlistSignup(email, firstName, lastName);
 
   return c.json({ success: true });
 });

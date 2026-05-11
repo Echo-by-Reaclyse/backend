@@ -13,6 +13,7 @@ import { verifyGoogleToken } from "../lib/google-auth.js";
 import { authMiddleware, type AuthVariables } from "../lib/auth.js";
 import { resend, FROM_ADDRESS, APP_AUDIENCE_ID } from "../lib/resend-client.js";
 import { appWelcomeEmail, accountDeletionEmail } from "../lib/email-templates.js";
+import { notifyOAuthSignup } from "../lib/slack-client.js";
 
 const auth = new Hono<AuthVariables>();
 
@@ -92,7 +93,7 @@ async function findOrCreateOAuthUser(params: {
   email?: string | null;
   displayName?: string | null;
   photoURL?: string | null;
-}): Promise<DbUser> {
+}): Promise<{ user: DbUser; isNewUser: boolean }> {
   const { provider, providerId, email, displayName, photoURL } = params;
 
   // 1. Existing identity → return user, filling in any null profile fields
@@ -115,9 +116,9 @@ async function findOrCreateOAuthUser(params: {
         WHERE id = ${user.id}
         RETURNING id, email, password_hash, display_name, photo_url
       `;
-      return updated[0] as DbUser;
+      return { user: updated[0] as DbUser, isNewUser: false };
     }
-    return user;
+    return { user, isNewUser: false };
   }
 
   // 2. Same email already exists → link identity to that account
@@ -133,7 +134,7 @@ async function findOrCreateOAuthUser(params: {
         VALUES (${user.id}, ${provider}, ${providerId})
         ON CONFLICT DO NOTHING
       `;
-      return user;
+      return { user, isNewUser: false };
     }
   }
 
@@ -150,7 +151,7 @@ async function findOrCreateOAuthUser(params: {
     VALUES (${user.id}, ${provider}, ${providerId})
   `;
 
-  return user;
+  return { user, isNewUser: true };
 }
 
 // ─── Public: sign-up ─────────────────────────────────────────────────────────
@@ -227,13 +228,16 @@ auth.post("/sign-in-apple", async (c) => {
 
   try {
     const claims = await verifyAppleToken(body.data.idToken, body.data.nonce);
-    const user = await findOrCreateOAuthUser({
+    const { user, isNewUser } = await findOrCreateOAuthUser({
       provider: "apple",
       providerId: claims.sub,
       email: claims.email,
       displayName: body.data.displayName ?? null,
     });
     addToAppAudience(user.email, user.display_name);
+    if (isNewUser && user.email) {
+      notifyOAuthSignup(user.email, "apple", user.display_name).catch(console.error);
+    }
     return c.json(await createSession(user));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Apple sign-in failed";
@@ -251,7 +255,7 @@ auth.post("/sign-in-google", async (c) => {
 
   try {
     const claims = await verifyGoogleToken(body.data.idToken);
-    const user = await findOrCreateOAuthUser({
+    const { user, isNewUser } = await findOrCreateOAuthUser({
       provider: "google",
       providerId: claims.sub,
       email: claims.email,
@@ -259,6 +263,9 @@ auth.post("/sign-in-google", async (c) => {
       photoURL: claims.picture,
     });
     addToAppAudience(user.email, user.display_name);
+    if (isNewUser && user.email) {
+      notifyOAuthSignup(user.email, "google", user.display_name).catch(console.error);
+    }
     return c.json(await createSession(user));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Google sign-in failed";
