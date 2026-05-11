@@ -182,7 +182,7 @@ auth.post("/sign-up", async (c) => {
   const session = await createSession(user);
 
   addToAppAudience(email);
-  notifyEmailSignup(email).catch(console.error);
+  await notifyEmailSignup(email).catch(console.error);
 
   if (resend) {
     resend.emails
@@ -237,7 +237,7 @@ auth.post("/sign-in-apple", async (c) => {
     });
     addToAppAudience(user.email, user.display_name);
     if (isNewUser && user.email) {
-      notifyOAuthSignup(user.email, "apple", user.display_name).catch(console.error);
+      await notifyOAuthSignup(user.email, "apple", user.display_name).catch(console.error);
     }
     return c.json(await createSession(user));
   } catch (err) {
@@ -265,7 +265,7 @@ auth.post("/sign-in-google", async (c) => {
     });
     addToAppAudience(user.email, user.display_name);
     if (isNewUser && user.email) {
-      notifyOAuthSignup(user.email, "google", user.display_name).catch(console.error);
+      await notifyOAuthSignup(user.email, "google", user.display_name).catch(console.error);
     }
     return c.json(await createSession(user));
   } catch (err) {

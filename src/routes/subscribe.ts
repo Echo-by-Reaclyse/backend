@@ -60,7 +60,7 @@ subscribe.post("/", async (c) => {
     console.error("[subscribe] event error:", eventResult.error);
   }
 
-  notifyWaitlistSignup(email, firstName, lastName).catch(console.error);
+  await notifyWaitlistSignup(email, firstName, lastName).catch(console.error);
 
   return c.json({ success: true });
 });
