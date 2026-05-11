@@ -52,3 +52,8 @@ export async function notifyOAuthSignup(
   const message = `✨ New app signup via ${provider} — ${emoji} ${name} (${email})`;
   await postToWebhook(OAUTH_WEBHOOK, message);
 }
+
+export async function notifyEmailSignup(email: string): Promise<void> {
+  if (!OAUTH_WEBHOOK) return;
+  await postToWebhook(OAUTH_WEBHOOK, `✉️ New app signup via email — ${email}`);
+}

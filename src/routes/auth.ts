@@ -13,7 +13,7 @@ import { verifyGoogleToken } from "../lib/google-auth.js";
 import { authMiddleware, type AuthVariables } from "../lib/auth.js";
 import { resend, FROM_ADDRESS, APP_AUDIENCE_ID } from "../lib/resend-client.js";
 import { appWelcomeEmail, accountDeletionEmail } from "../lib/email-templates.js";
-import { notifyOAuthSignup } from "../lib/slack-client.js";
+import { notifyOAuthSignup, notifyEmailSignup } from "../lib/slack-client.js";
 
 const auth = new Hono<AuthVariables>();
 
@@ -182,6 +182,7 @@ auth.post("/sign-up", async (c) => {
   const session = await createSession(user);
 
   addToAppAudience(email);
+  notifyEmailSignup(email).catch(console.error);
 
   if (resend) {
     resend.emails
