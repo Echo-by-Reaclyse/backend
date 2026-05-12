@@ -14,7 +14,10 @@ export async function verifyAppleToken(
   idToken: string,
   nonce: string
 ): Promise<AppleClaims> {
-  const audience = process.env.APPLE_APP_BUNDLE_ID ?? "com.reaclyse.echo";
+  const iosAudience = process.env.APPLE_APP_BUNDLE_ID ?? "com.reaclyse.echo";
+  const webAudience = process.env.APPLE_WEB_CLIENT_ID;
+  // Accept both the iOS bundle ID and the web Services ID as valid audiences
+  const audience = webAudience ? [iosAudience, webAudience] : iosAudience;
   const nonceHash = createHash("sha256").update(nonce).digest("hex");
 
   const { payload } = await jwtVerify(idToken, appleJWKS, {

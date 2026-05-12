@@ -253,7 +253,7 @@ auth.post("/sign-in-apple", async (c) => {
 
 auth.post("/sign-in-google", async (c) => {
   const body = z
-    .object({ idToken: z.string(), accessToken: z.string() })
+    .object({ idToken: z.string(), accessToken: z.string().optional() })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: body.error.issues[0].message }, 400);
 
