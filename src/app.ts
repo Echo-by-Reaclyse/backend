@@ -4,6 +4,8 @@ import { logger } from "hono/logger";
 import { healthRoute } from "./routes/health.js";
 import { subscribeRoute } from "./routes/subscribe.js";
 import { authRoute } from "./routes/auth.js";
+import { questionsRoute } from "./routes/questions.js";
+import { adminRoute } from "./routes/admin.js";
 
 const app = new Hono();
 
@@ -16,6 +18,7 @@ app.use(
       "https://www.echobyreaclyse.com",
       "http://localhost:5173",
       "http://localhost:4173",
+      "http://localhost:3000",
     ],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
@@ -26,6 +29,8 @@ app.use(
 app.route("/health", healthRoute);
 app.route("/auth", authRoute);
 app.route("/subscribe", subscribeRoute);
+app.route("/questions", questionsRoute);
+app.route("/admin", adminRoute);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 

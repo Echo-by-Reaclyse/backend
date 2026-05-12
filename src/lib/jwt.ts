@@ -14,6 +14,7 @@ export interface TokenPayload {
   displayName?: string | null;
   photoURL?: string | null;
   provider: string;
+  role?: string;
 }
 
 export async function signAccessToken(
@@ -25,6 +26,7 @@ export async function signAccessToken(
     displayName: payload.displayName ?? null,
     photoURL: payload.photoURL ?? null,
     provider: payload.provider,
+    role: payload.role ?? "user",
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
@@ -42,6 +44,7 @@ export async function verifyAccessToken(token: string): Promise<TokenPayload> {
     displayName: (payload.displayName as string) ?? null,
     photoURL: (payload.photoURL as string) ?? null,
     provider: payload.provider as string,
+    role: (payload.role as string) ?? "user",
   };
 }
 

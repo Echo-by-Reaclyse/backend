@@ -43,6 +43,7 @@ interface DbUser {
   password_hash: string | null;
   display_name: string | null;
   photo_url: string | null;
+  role: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -71,6 +72,7 @@ async function createSession(user: DbUser) {
     displayName: user.display_name,
     photoURL: user.photo_url,
     provider,
+    role: user.role,
   });
 
   return {
@@ -83,6 +85,7 @@ async function createSession(user: DbUser) {
       displayName: user.display_name ?? null,
       photoURL: user.photo_url ?? null,
       provider,
+      role: user.role,
     },
   };
 }
@@ -98,7 +101,7 @@ async function findOrCreateOAuthUser(params: {
 
   // 1. Existing identity → return user, filling in any null profile fields
   const byIdentity = await sql`
-    SELECT u.id, u.email, u.password_hash, u.display_name, u.photo_url
+    SELECT u.id, u.email, u.password_hash, u.display_name, u.photo_url, u.role
     FROM user_identities i
     JOIN users u ON u.id = i.user_id
     WHERE i.provider = ${provider} AND i.provider_id = ${providerId}
@@ -114,7 +117,7 @@ async function findOrCreateOAuthUser(params: {
           photo_url    = COALESCE(photo_url,    ${photoURL ?? null}),
           updated_at   = now()
         WHERE id = ${user.id}
-        RETURNING id, email, password_hash, display_name, photo_url
+        RETURNING id, email, password_hash, display_name, photo_url, role
       `;
       return { user: updated[0] as DbUser, isNewUser: false };
     }
@@ -124,7 +127,7 @@ async function findOrCreateOAuthUser(params: {
   // 2. Same email already exists → link identity to that account
   if (email) {
     const byEmail = await sql`
-      SELECT id, email, password_hash, display_name, photo_url
+      SELECT id, email, password_hash, display_name, photo_url, role
       FROM users WHERE email = ${email}
     `;
     if (byEmail.length > 0) {
@@ -142,7 +145,7 @@ async function findOrCreateOAuthUser(params: {
   const newUsers = await sql`
     INSERT INTO users (email, display_name, photo_url)
     VALUES (${email ?? null}, ${displayName ?? null}, ${photoURL ?? null})
-    RETURNING id, email, password_hash, display_name, photo_url
+    RETURNING id, email, password_hash, display_name, photo_url, role
   `;
   const user = newUsers[0] as DbUser;
 
@@ -170,7 +173,7 @@ auth.post("/sign-up", async (c) => {
   const users = await sql`
     INSERT INTO users (email, password_hash)
     VALUES (${email}, ${await hashPassword(password)})
-    RETURNING id, email, password_hash, display_name, photo_url
+    RETURNING id, email, password_hash, display_name, photo_url, role
   `;
   const user = users[0] as DbUser;
 
@@ -203,7 +206,7 @@ auth.post("/sign-in", async (c) => {
 
   const { email, password } = body.data;
   const rows = await sql`
-    SELECT id, email, password_hash, display_name, photo_url
+    SELECT id, email, password_hash, display_name, photo_url, role
     FROM users WHERE email = ${email}
   `;
 
@@ -293,7 +296,7 @@ auth.post("/refresh", async (c) => {
   await sql`DELETE FROM refresh_tokens WHERE token_hash = ${tokenHash}`;
 
   const users = await sql`
-    SELECT id, email, password_hash, display_name, photo_url FROM users WHERE id = ${userId}
+    SELECT id, email, password_hash, display_name, photo_url, role FROM users WHERE id = ${userId}
   `;
   if (users.length === 0) return c.json({ error: "User not found" }, 401);
 
@@ -347,10 +350,16 @@ auth.delete("/account", authMiddleware, async (c) => {
 auth.get("/me", authMiddleware, async (c) => {
   const { userId } = c.get("auth");
   const rows = await sql`
-    SELECT id, email, display_name, photo_url FROM users WHERE id = ${userId}
+    SELECT id, email, display_name, photo_url, role FROM users WHERE id = ${userId}
   `;
   if (rows.length === 0) return c.json({ error: "User not found" }, 404);
-  const u = rows[0] as { id: string; email: string | null; display_name: string | null; photo_url: string | null };
+  const u = rows[0] as {
+    id: string;
+    email: string | null;
+    display_name: string | null;
+    photo_url: string | null;
+    role: string;
+  };
   const provider = await primaryProvider(userId);
   return c.json({
     id: u.id,
@@ -358,6 +367,7 @@ auth.get("/me", authMiddleware, async (c) => {
     displayName: u.display_name ?? null,
     photoURL: u.photo_url ?? null,
     provider,
+    role: u.role,
   });
 });
 
