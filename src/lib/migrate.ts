@@ -34,6 +34,16 @@ async function runSchemaMigrations(): Promise<void> {
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+
+  // translations columns (idempotent)
+  await sql`
+    ALTER TABLE question_categories
+      ADD COLUMN IF NOT EXISTS translations JSONB NOT NULL DEFAULT '{}'
+  `;
+  await sql`
+    ALTER TABLE questions
+      ADD COLUMN IF NOT EXISTS translations JSONB NOT NULL DEFAULT '{}'
+  `;
 }
 
 // ─── Seed data ────────────────────────────────────────────────────────────────

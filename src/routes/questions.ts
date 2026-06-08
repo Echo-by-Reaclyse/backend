@@ -9,6 +9,7 @@ interface CategoryRow {
   slug: string;
   sort_order: number;
   is_active: boolean;
+  translations: Record<string, string>;
   updated_at: Date;
 }
 
@@ -18,6 +19,7 @@ interface QuestionRow {
   category_slug: string;
   sort_order: number;
   is_active: boolean;
+  translations: Record<string, string>;
   updated_at: Date;
 }
 
@@ -56,7 +58,7 @@ questions.get("/", async (c) => {
 
   // Fetch active categories ordered by sort_order
   const categoryRows = await sql`
-    SELECT id, name, slug, sort_order, is_active, updated_at
+    SELECT id, name, slug, sort_order, is_active, translations, updated_at
     FROM question_categories
     WHERE is_active = true
     ORDER BY sort_order ASC
@@ -70,6 +72,7 @@ questions.get("/", async (c) => {
       qc.slug AS category_slug,
       q.sort_order,
       q.is_active,
+      q.translations,
       q.updated_at
     FROM questions q
     JOIN question_categories qc ON qc.id = q.category_id
@@ -83,6 +86,7 @@ questions.get("/", async (c) => {
     slug: r.slug,
     sort_order: r.sort_order,
     is_active: r.is_active,
+    translations: r.translations ?? {},
   }));
 
   const questionList = (questionRows as QuestionRow[]).map((r) => ({
@@ -91,6 +95,7 @@ questions.get("/", async (c) => {
     category_slug: r.category_slug,
     sort_order: r.sort_order,
     is_active: r.is_active,
+    translations: r.translations ?? {},
   }));
 
   return c.json({ version, categories, questions: questionList });
