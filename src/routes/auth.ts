@@ -334,6 +334,11 @@ auth.delete("/account", authMiddleware, async (c) => {
   const userRows = await sql`SELECT email FROM users WHERE id = ${userId}`;
   const email = (userRows[0] as { email: string | null } | undefined)?.email;
 
+  // Explicitly remove related rows before deleting the user so no orphaned
+  // user_identities rows remain to block future provider linking on re-signup.
+  await sql`DELETE FROM user_identities WHERE user_id = ${userId}`;
+  await sql`DELETE FROM refresh_tokens WHERE user_id = ${userId}`;
+  await sql`DELETE FROM user_devices WHERE user_id = ${userId}`;
   await sql`DELETE FROM users WHERE id = ${userId}`;
 
   if (resend && email) {
@@ -392,9 +397,11 @@ auth.post("/link-apple", authMiddleware, async (c) => {
 
   try {
     const claims = await verifyAppleToken(body.data.idToken, body.data.nonce);
+    // INNER JOIN ensures orphaned rows (user deleted without cascade) are invisible.
     const existing = await sql`
-      SELECT user_id FROM user_identities
-      WHERE provider = 'apple' AND provider_id = ${claims.sub}
+      SELECT ui.user_id FROM user_identities ui
+      INNER JOIN users u ON u.id = ui.user_id
+      WHERE ui.provider = 'apple' AND ui.provider_id = ${claims.sub}
     `;
     if (existing.length > 0 && (existing[0] as { user_id: string }).user_id !== userId)
       return c.json({ error: "Apple account already linked to another user" }, 409);
@@ -421,9 +428,11 @@ auth.post("/link-google", authMiddleware, async (c) => {
 
   try {
     const claims = await verifyGoogleToken(body.data.idToken);
+    // INNER JOIN ensures orphaned rows (user deleted without cascade) are invisible.
     const existing = await sql`
-      SELECT user_id FROM user_identities
-      WHERE provider = 'google' AND provider_id = ${claims.sub}
+      SELECT ui.user_id FROM user_identities ui
+      INNER JOIN users u ON u.id = ui.user_id
+      WHERE ui.provider = 'google' AND ui.provider_id = ${claims.sub}
     `;
     if (existing.length > 0 && (existing[0] as { user_id: string }).user_id !== userId)
       return c.json({ error: "Google account already linked to another user" }, 409);
