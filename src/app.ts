@@ -1,3 +1,5 @@
+// Must be imported before any other modules so Sentry can instrument them.
+import { Sentry } from "./lib/sentry.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -33,5 +35,16 @@ app.route("/questions", questionsRoute);
 app.route("/admin", adminRoute);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
+
+app.onError((err, c) => {
+  Sentry.captureException(err, {
+    extra: {
+      url: c.req.url,
+      method: c.req.method,
+    },
+  });
+  const status = err instanceof Error && "status" in err ? (err as { status: number }).status : 500;
+  return c.json({ error: "Internal server error" }, status as 500);
+});
 
 export default app;
