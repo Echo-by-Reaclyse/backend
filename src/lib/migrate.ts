@@ -52,17 +52,36 @@ interface CategorySeed {
   slug: string;
   name: string;
   sort_order: number;
+  /** Seeded but not served. See ECH-312 and scripts/cleanup-question-categories.ts. */
+  is_active?: boolean;
 }
 
+/**
+ * Five categories are offered to people (ECH-312): Decisions, Identity, Relationships,
+ * Fear, Gratitude.
+ *
+ * The other three still exist as rows, because questions reference them and entries store
+ * the tag they were answered under:
+ *
+ *   future     — merged into Identity; the cleanup script re-tags its questions.
+ *   creativity — retired; its questions are about creative expression and don't belong
+ *                anywhere else, so they stay inactive rather than being mis-filed.
+ *   freeform   — ACTIVE. Only hidden from the *picker*, client-side, because "Just say it"
+ *                is already that mode. Its questions are the bank's best general dailies
+ *                and keep serving under "Any category".
+ *
+ * A fresh database seeded from here lands in the same state the cleanup script produces on
+ * an existing one.
+ */
 const CATEGORIES: CategorySeed[] = [
   { slug: "identity",      name: "Identity",      sort_order: 0 },
   { slug: "decisions",     name: "Decisions",     sort_order: 1 },
   { slug: "relationships", name: "Relationships", sort_order: 2 },
   { slug: "fear",          name: "Fear",          sort_order: 3 },
   { slug: "gratitude",     name: "Gratitude",     sort_order: 4 },
-  { slug: "future",        name: "Future",        sort_order: 5 },
-  { slug: "creativity",    name: "Creativity",    sort_order: 6 },
-  { slug: "freeform",      name: "Freeform",      sort_order: 7 },
+  { slug: "freeform",      name: "Freeform",      sort_order: 5 },
+  { slug: "future",        name: "Future",        sort_order: 6, is_active: false },
+  { slug: "creativity",    name: "Creativity",    sort_order: 7, is_active: false },
 ];
 
 interface QuestionSeed {
@@ -176,8 +195,8 @@ const QUESTIONS: QuestionSeed[] = [
 async function seedCategories(): Promise<void> {
   for (const cat of CATEGORIES) {
     await sql`
-      INSERT INTO question_categories (name, slug, sort_order)
-      VALUES (${cat.name}, ${cat.slug}, ${cat.sort_order})
+      INSERT INTO question_categories (name, slug, sort_order, is_active)
+      VALUES (${cat.name}, ${cat.slug}, ${cat.sort_order}, ${cat.is_active ?? true})
       ON CONFLICT (slug) DO NOTHING
     `;
   }
