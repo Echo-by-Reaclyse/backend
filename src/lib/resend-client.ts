@@ -10,3 +10,4 @@ export const resend = apiKey ? new Resend(apiKey) : null;
 export const FROM_ADDRESS = "ÉCHO <hello@echobyreaclyse.com>";
 export const WAITLIST_AUDIENCE_ID = process.env.RESEND_WAITLIST_AUDIENCE_ID ?? null;
 export const APP_AUDIENCE_ID = process.env.RESEND_APP_AUDIENCE_ID ?? null;
+export const SUMMIT_AUDIENCE_ID = process.env.RESEND_SUMMIT_AUDIENCE_ID ?? null;

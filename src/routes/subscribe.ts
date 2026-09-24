@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { resend, WAITLIST_AUDIENCE_ID } from "../lib/resend-client.js";
+import { resend, WAITLIST_AUDIENCE_ID, SUMMIT_AUDIENCE_ID } from "../lib/resend-client.js";
 import { notifyWaitlistSignup } from "../lib/slack-client.js";
 
 const subscribe = new Hono();
@@ -11,6 +11,7 @@ const bodySchema = z.object({
   lastName: z.string().optional(),
   consent: z.boolean({ required_error: "You must agree to receive updates" }),
   hp: z.string().default(""), // honeypot — must be empty
+  source: z.enum(["landing", "summit"]).default("landing"),
 });
 
 subscribe.post("/", async (c) => {
@@ -25,7 +26,7 @@ subscribe.post("/", async (c) => {
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400);
 
-  const { email, firstName, lastName, consent, hp } = parsed.data;
+  const { email, firstName, lastName, consent, hp, source } = parsed.data;
 
   if (!consent) return c.json({ error: "You must agree to receive updates" }, 400);
 
@@ -37,27 +38,31 @@ subscribe.post("/", async (c) => {
     return c.json({ success: true });
   }
 
-  if (WAITLIST_AUDIENCE_ID) {
+  const isSummit = source === "summit";
+  const audienceId = isSummit ? SUMMIT_AUDIENCE_ID : WAITLIST_AUDIENCE_ID;
+  const eventName = isSummit ? "summit.joined" : "waitlist.joined";
+
+  if (audienceId) {
     const contactResult = await resend.contacts.create({
       email,
       firstName,
       lastName,
       unsubscribed: false,
-      audienceId: WAITLIST_AUDIENCE_ID,
+      audienceId,
     });
     if (contactResult.error) {
-      console.error("[subscribe] audience error:", contactResult.error);
+      console.error(`[subscribe] audience error (${source}):`, contactResult.error);
     }
   } else {
-    console.warn("[subscribe] RESEND_WAITLIST_AUDIENCE_ID not set — skipping audience registration");
+    console.warn(`[subscribe] audience ID not set for source="${source}" — skipping audience registration`);
   }
 
   const eventResult = await resend.events.send({
-    event: "waitlist.joined",
+    event: eventName,
     email,
   });
   if (eventResult.error) {
-    console.error("[subscribe] event error:", eventResult.error);
+    console.error(`[subscribe] event error (${eventName}):`, eventResult.error);
   }
 
   await notifyWaitlistSignup(email, firstName, lastName).catch(console.error);
