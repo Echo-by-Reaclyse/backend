@@ -31,12 +31,14 @@ async function postToWebhook(webhookUrl: string, message: string): Promise<void>
 export async function notifyWaitlistSignup(
   email: string,
   firstName?: string | null,
-  lastName?: string | null
+  lastName?: string | null,
+  source: "landing" | "summit" = "landing"
 ): Promise<void> {
   if (!WAITLIST_WEBHOOK) return;
 
   const name = [firstName, lastName].filter(Boolean).join(" ") || "Anonymous";
-  const message = `🎉 New waitlist signup: ${email} (${name})`;
+  const tag = source === "summit" ? " · 🏔️ GFR Summit" : "";
+  const message = `🎉 New waitlist signup: ${email} (${name})${tag}`;
   await postToWebhook(WAITLIST_WEBHOOK, message);
 }
 
