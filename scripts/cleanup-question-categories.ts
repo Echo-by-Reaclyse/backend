@@ -55,7 +55,7 @@ async function report(label: string): Promise<void> {
            COUNT(q.id) FILTER (WHERE q.is_active) AS question_count
     FROM question_categories qc
     LEFT JOIN questions q ON q.category_id = qc.id
-    GROUP BY qc.slug, qc.name, qc.is_active
+    GROUP BY qc.slug, qc.name, qc.is_active, qc.sort_order
     ORDER BY qc.sort_order
   `) as unknown as CountRow[];
 
