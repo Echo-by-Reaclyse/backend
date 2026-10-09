@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { resend, NEWSLETTER_AUDIENCE_ID } from "../lib/resend-client.js";
+import { notifyNewsletterSignup } from "../lib/slack-client.js";
 
 const subscribe = new Hono();
 
@@ -47,6 +48,8 @@ subscribe.post("/", async (c) => {
   } else {
     console.warn("[subscribe] RESEND_NEWSLETTER_AUDIENCE_ID not set — skipping audience registration");
   }
+
+  await notifyNewsletterSignup(email).catch(console.error);
 
   return c.json({ success: true });
 });

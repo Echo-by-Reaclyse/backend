@@ -23,6 +23,11 @@ async function postToWebhook(webhookUrl: string, message: string): Promise<void>
   }
 }
 
+export async function notifyNewsletterSignup(email: string): Promise<void> {
+  if (!OAUTH_WEBHOOK) return;
+  await postToWebhook(OAUTH_WEBHOOK, `📬 New newsletter subscriber: ${email}`);
+}
+
 export async function notifyOAuthSignup(
   email: string,
   provider: "apple" | "google",
