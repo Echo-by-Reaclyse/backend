@@ -1,9 +1,4 @@
-const WAITLIST_WEBHOOK = process.env.SLACK_WAITLIST_WEBHOOK;
 const OAUTH_WEBHOOK = process.env.SLACK_OAUTH_WEBHOOK;
-
-if (!WAITLIST_WEBHOOK) {
-  console.warn("[slack] SLACK_WAITLIST_WEBHOOK not set — waitlist notifications disabled");
-}
 
 if (!OAUTH_WEBHOOK) {
   console.warn("[slack] SLACK_OAUTH_WEBHOOK not set — OAuth notifications disabled");
@@ -26,20 +21,6 @@ async function postToWebhook(webhookUrl: string, message: string): Promise<void>
       err instanceof Error ? err.message : err
     );
   }
-}
-
-export async function notifyWaitlistSignup(
-  email: string,
-  firstName?: string | null,
-  lastName?: string | null,
-  source: "landing" | "summit" = "landing"
-): Promise<void> {
-  if (!WAITLIST_WEBHOOK) return;
-
-  const name = [firstName, lastName].filter(Boolean).join(" ") || "Anonymous";
-  const tag = source === "summit" ? " · 🏔️ GFR Summit" : "";
-  const message = `🎉 New waitlist signup: ${email} (${name})${tag}`;
-  await postToWebhook(WAITLIST_WEBHOOK, message);
 }
 
 export async function notifyOAuthSignup(
