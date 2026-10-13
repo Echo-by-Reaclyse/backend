@@ -8,6 +8,7 @@ import { subscribeRoute } from "./routes/subscribe.js";
 import { authRoute } from "./routes/auth.js";
 import { questionsRoute } from "./routes/questions.js";
 import { adminRoute } from "./routes/admin.js";
+import { blogRoute } from "./routes/blog.js";
 
 const app = new Hono();
 
@@ -33,6 +34,7 @@ app.route("/auth", authRoute);
 app.route("/subscribe", subscribeRoute);
 app.route("/questions", questionsRoute);
 app.route("/admin", adminRoute);
+app.route("/blog", blogRoute);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
