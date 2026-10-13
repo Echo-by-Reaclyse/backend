@@ -16,7 +16,7 @@ blog.get("/posts", async (c) => {
   return c.json({ posts: rows });
 });
 
-// GET /blog/posts/:slug — get a single published post by slug (full, with sections)
+// GET /blog/posts/:slug — get a single published post by slug (full with sections + related summaries)
 blog.get("/posts/:slug", async (c) => {
   const slug = c.req.param("slug");
   const rows = await sql`
@@ -24,7 +24,21 @@ blog.get("/posts/:slug", async (c) => {
     WHERE slug = ${slug} AND status = 'published'
   `;
   if (rows.length === 0) return c.json({ error: "Post not found" }, 404);
-  return c.json({ post: rows[0] });
+  const post = rows[0];
+
+  const relatedSlugs: string[] = post.related_slugs ?? [];
+  let relatedPosts: unknown[] = [];
+  if (relatedSlugs.length > 0) {
+    relatedPosts = await sql`
+      SELECT id, slug, status, title, search_title, description, excerpt, topic,
+             reading_time, author, in_short, card_visual, related_slugs,
+             published_at, created_at, updated_at
+      FROM blog_posts
+      WHERE slug = ANY(${relatedSlugs}::text[]) AND status = 'published'
+    `;
+  }
+
+  return c.json({ post, relatedPosts });
 });
 
 export { blog as blogRoute };

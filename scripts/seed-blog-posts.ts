@@ -5,8 +5,6 @@
  * Safe to re-run — uses ON CONFLICT DO NOTHING.
  */
 import { neon } from "@neondatabase/serverless";
-import * as dotenv from "dotenv";
-dotenv.config();
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -211,7 +209,7 @@ const posts = [
   {
     slug: "private-journaling-app",
     title: "What \"private\" means in a journaling app, and what to check",
-    search_title: "What "private" means in a journaling app, and what to check | ÉCHO Journal",
+    search_title: "What 'private' means in a journaling app, and what to check | ÉCHO Journal",
     description: "Questions to ask about recording, transcription, storage, AI processing and deletion before you trust an app with your thoughts.",
     excerpt: "Questions to ask about recording, transcription, storage, AI processing and deletion before you trust an app with your thoughts.",
     date: "2026-08-19",
